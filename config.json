@@ -1,0 +1,50 @@
+{
+  "balance": 10000.0,
+  "max_bet": 20.0,
+  "min_ev": 0.1,
+  "max_price": 0.45,
+  "min_volume": 500,
+  "min_hours": 2.0,
+  "max_hours": 72.0,
+  "kelly_fraction": 0.25,
+  "scan_interval": 3600,
+  "calibration_min": 30,
+  "vc_key": "YOUR_KEY_HERE",
+  "weatherapi_key": "YOUR_KEY_HERE",
+  "weather_provider": "visualcrossing",
+  "max_slippage": 0.03,
+
+  "live_trading": false,
+  "wallet": {
+    "host": "https://clob.polymarket.com",
+    "chain_id": 137,
+    "signature_type": 2,
+    "private_key": "",
+    "private_key_env": "POLYMARKET_PRIVATE_KEY",
+    "funder_address": "",
+    "funder_address_env": "POLYMARKET_FUNDER_ADDRESS"
+  },
+
+  "risk": {
+    "max_per_trade": 10.0,
+    "max_daily_loss": 50.0,
+    "max_concurrent_positions": 5,
+    "max_total_exposure": 100.0,
+    "kill_switch_file": "data/KILL_SWITCH",
+    "pause_file": "data/PAUSED",
+    "flatten_on_kill": false
+  },
+
+  "agent_config": {
+    "editable_fields": [
+      "min_ev",
+      "max_price",
+      "kelly_fraction",
+      "max_bet",
+      "min_volume",
+      "max_slippage",
+      "min_hours",
+      "max_hours"
+    ]
+  }
+}
