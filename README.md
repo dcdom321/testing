@@ -131,6 +131,84 @@ This data is used for self-calibration — the bot learns forecast accuracy per 
 
 ---
 
+## Live Trading
+
+The bot ships in **paper mode** by default (`live_trading: false`). Flipping it
+to `true` and providing wallet credentials enables real Polymarket execution
+via [py-clob-client](https://github.com/Polymarket/py-clob-client).
+
+**Wallet config** (in `config.json` under `wallet`):
+- `private_key` — raw hex private key, **OR**
+- `private_key_env: POLYMARKET_PRIVATE_KEY` — name of env var that holds the key (preferred)
+- `funder_address` / `funder_address_env` — your Polymarket proxy/funder address
+- `signature_type` — `2` for the Polymarket UI proxy wallet (default), `0` for a raw EOA
+
+**Risk caps** (in `config.json` under `risk`) are enforced before every entry:
+- `max_per_trade` — hard cap on a single position's USD cost
+- `max_daily_loss` — circuit breaker that halts new entries for the rest of the UTC day
+- `max_concurrent_positions` — total open positions
+- `max_total_exposure` — sum of cost across all open positions
+- `kill_switch_file` / `pause_file` — flag files Hermes (or you) can drop to stop entries
+
+These four caps cannot be raised by the agent at runtime. They are the floor
+your funds are protected by.
+
+**One-time wallet check**:
+```bash
+python setup_wallet.py
+```
+Verifies API creds derive cleanly and the bot can read your open orders. Does
+not place orders. Make sure USDC + CTF allowances are approved on Polygon for
+the Polymarket exchange contracts.
+
+## Hermes Agent (MCP)
+
+`hermes_mcp.py` is a Model Context Protocol server that exposes the bot's
+control surface to [Hermes Agent](https://hermes-agent.nousresearch.com/).
+Hermes can monitor history and adjust tuning parameters between runs.
+
+Tools exposed:
+- Read-only: `get_status`, `get_positions`, `get_recent_trades`, `get_calibration`, `get_config`, `get_audit_log`
+- Tuning: `update_config(field, value, reason)` — only fields in `agent_config.editable_fields` (e.g. `min_ev`, `kelly_fraction`)
+- Operational: `pause`, `resume`, `set_kill_switch`, `reset_kill_switch`, `request_close_position`
+
+Every mutation is appended to `data/agent_audit.log`. Risk caps and wallet
+config are deliberately not editable from MCP.
+
+Add this to your Hermes config (typically `~/.hermes/config.toml` or via
+`hermes mcp add`):
+```toml
+[mcp_servers.weatherbet]
+command = "/opt/weatherbet/.venv/bin/python"
+args    = ["/opt/weatherbet/hermes_mcp.py"]
+```
+
+## Deployment (Ubuntu VPS)
+
+One-shot installer:
+```bash
+git clone <repo> weatherbet && cd weatherbet
+sudo bash deploy/install.sh
+sudo nano /opt/weatherbet/.env          # paste private key + funder address
+sudo nano /opt/weatherbet/config.json   # set live_trading + risk caps
+sudo -u weatherbet /opt/weatherbet/.venv/bin/python /opt/weatherbet/setup_wallet.py
+sudo systemctl start weatherbet
+journalctl -u weatherbet -f
+```
+
+The unit runs under a dedicated `weatherbet` user with hardening
+(`ProtectSystem=strict`, `NoNewPrivileges`, etc.). The `.env` file is mode
+`600`. Data is persisted to `/opt/weatherbet/data/`.
+
+Docker alternative:
+```bash
+cp .env.example .env && nano .env
+docker compose up -d
+docker compose logs -f
+```
+
 ## Disclaimer
 
-This is not financial advice. Prediction markets carry real risk. Run the simulation thoroughly before committing real capital.
+This is not financial advice. Prediction markets carry real risk. Run with
+`live_trading: false` and conservative `risk` caps until you've verified the
+behavior end-to-end. Live mode places real orders against your funds.

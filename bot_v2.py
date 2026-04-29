@@ -17,9 +17,13 @@ import sys
 import json
 import math
 import time
+import uuid
 import requests
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
+
+import polymarket_client
+from risk import RiskGate
 
 # =============================================================================
 # CONFIG
@@ -42,6 +46,11 @@ CALIBRATION_MIN  = _cfg.get("calibration_min", 30)
 VC_KEY           = _cfg.get("vc_key", "")
 WAPI_KEY         = _cfg.get("weatherapi_key", "")
 WEATHER_PROVIDER = _cfg.get("weather_provider", "visualcrossing").lower()
+LIVE_TRADING     = bool(_cfg.get("live_trading", False))
+
+# Initialized in run_loop. Status/report commands don't need them.
+_pmc  = None
+_risk = None
 
 SIGMA_F = 2.0
 SIGMA_C = 1.2
@@ -536,11 +545,19 @@ def scan_and_update():
                     ask = float(prices[1]) if len(prices) > 1 else bid
                 except Exception:
                     continue
+                yes_token_id = None
+                try:
+                    token_ids = json.loads(market.get("clobTokenIds", "[]"))
+                    if token_ids:
+                        yes_token_id = str(token_ids[0])
+                except Exception:
+                    pass
                 outcomes.append({
-                    "question":  question,
-                    "market_id": mid,
-                    "range":     rng,
-                    "bid":       round(bid, 4),
+                    "question":     question,
+                    "market_id":    mid,
+                    "yes_token_id": yes_token_id,
+                    "range":        rng,
+                    "bid":          round(bid, 4),
                     "ask":       round(ask, 4),
                     "price":     round(bid, 4),   # for compatibility
                     "spread":    round(ask - bid, 4),
@@ -667,6 +684,7 @@ def scan_and_update():
                             if size >= 0.50:
                                 best_signal = {
                                     "market_id":    o["market_id"],
+                                    "yes_token_id": o.get("yes_token_id"),
                                     "question":     o["question"],
                                     "bucket_low":   t_low,
                                     "bucket_high":  t_high,
@@ -712,12 +730,50 @@ def scan_and_update():
                         print(f"  [WARN] Could not fetch real ask for {best_signal['market_id']}: {e}")
 
                     if not skip_position and best_signal["entry_price"] < MAX_PRICE:
+                        # Risk gate (applies to both paper and live)
+                        if _risk is not None:
+                            open_now = [m.get("position") for m in load_all_markets()
+                                        if m.get("position") and m["position"].get("status") == "open"]
+                            reason = _risk.check_entry(best_signal["cost"], open_now)
+                            if reason:
+                                print(f"  [RISK] {loc['name']} {date} blocked: {reason}")
+                                save_market(mkt)
+                                continue
+
+                        # Live order placement (no-op for stub client)
+                        order_resp = None
+                        if _pmc is not None and getattr(_pmc, "live", False):
+                            if not best_signal.get("yes_token_id"):
+                                print(f"  [LIVE] {loc['name']} {date} skipped — no yes_token_id")
+                                save_market(mkt)
+                                continue
+                            client_order_id = f"wbet-{uuid.uuid4().hex[:16]}"
+                            best_signal["client_order_id"] = client_order_id
+                            try:
+                                order_resp = _pmc.place_buy(
+                                    token_id=best_signal["yes_token_id"],
+                                    price=best_signal["entry_price"],
+                                    size=best_signal["shares"],
+                                    client_order_id=client_order_id,
+                                )
+                            except Exception as e:
+                                print(f"  [LIVE-ERR] place_buy failed: {e}")
+                                save_market(mkt)
+                                continue
+                            if not order_resp or not order_resp.get("success", True):
+                                print(f"  [LIVE-FAIL] {loc['name']} {date} order rejected: {order_resp}")
+                                save_market(mkt)
+                                continue
+                            best_signal["order_id"]   = order_resp.get("orderID") or order_resp.get("id")
+                            best_signal["order_resp"] = order_resp
+
                         balance -= best_signal["cost"]
                         mkt["position"] = best_signal
                         state["total_trades"] += 1
                         new_pos += 1
                         bucket_label = f"{best_signal['bucket_low']}-{best_signal['bucket_high']}{unit_sym}"
-                        print(f"  [BUY]  {loc['name']} {horizon} {date} | {bucket_label} | "
+                        live_tag = " [LIVE]" if _pmc is not None and getattr(_pmc, "live", False) else ""
+                        print(f"  [BUY]{live_tag}  {loc['name']} {horizon} {date} | {bucket_label} | "
                               f"${best_signal['entry_price']:.3f} | EV {best_signal['ev']:+.2f} | "
                               f"${best_signal['cost']:.2f} ({best_signal['forecast_src'].upper()})")
 
@@ -960,6 +1016,30 @@ def monitor_positions():
         stop_triggered = current_price <= stop
 
         if take_triggered or stop_triggered:
+            # Live SELL: place a limit sell at current_price. If it fails or
+            # we have no token id, leave the position open and try again next
+            # cycle — never desync local state from the exchange.
+            if _pmc is not None and getattr(_pmc, "live", False):
+                token_id = pos.get("yes_token_id")
+                if not token_id:
+                    print(f"  [LIVE] {city_name} {mkt['date']} close skipped — no yes_token_id")
+                    continue
+                client_order_id = f"wbet-exit-{uuid.uuid4().hex[:12]}"
+                try:
+                    sell_resp = _pmc.place_sell(
+                        token_id=token_id,
+                        price=current_price,
+                        size=pos["shares"],
+                        client_order_id=client_order_id,
+                    )
+                except Exception as e:
+                    print(f"  [LIVE-ERR] place_sell failed for {city_name} {mkt['date']}: {e}")
+                    continue
+                if not sell_resp or not sell_resp.get("success", True):
+                    print(f"  [LIVE-FAIL] sell rejected for {city_name} {mkt['date']}: {sell_resp}")
+                    continue
+                pos.setdefault("exits", []).append(sell_resp)
+
             pnl = round((current_price - entry) * pos["shares"], 2)
             balance += pos["cost"] + pnl
             pos["closed_at"]    = datetime.now(timezone.utc).isoformat()
@@ -987,18 +1067,36 @@ def monitor_positions():
 
 
 def run_loop():
-    global _cal
-    _cal = load_cal()
+    global _cal, _pmc, _risk
+    _cal  = load_cal()
+    _risk = RiskGate(_cfg, DATA_DIR)
+    _pmc  = polymarket_client.from_config(_cfg)
 
+    mode = "LIVE" if getattr(_pmc, "live", False) else "PAPER"
     print(f"\n{'='*55}")
-    print(f"  WEATHERBET — STARTING")
+    print(f"  WEATHERBET — STARTING ({mode})")
     print(f"{'='*55}")
     print(f"  Cities:     {len(LOCATIONS)}")
     print(f"  Balance:    ${BALANCE:,.0f} | Max bet: ${MAX_BET}")
+    print(f"  Risk caps:  per-trade ${_risk.max_per_trade} | daily ${_risk.max_daily_loss} | "
+          f"max-pos {_risk.max_concurrent} | exposure ${_risk.max_total_exposure}")
     print(f"  Scan:       {SCAN_INTERVAL//60} min | Monitor: {MONITOR_INTERVAL//60} min")
     print(f"  Sources:    ECMWF + HRRR(US) + METAR(D+0)")
     print(f"  Data:       {DATA_DIR.resolve()}")
     print(f"  Ctrl+C to stop\n")
+
+    # Reconcile any locally-tracked open orders against Polymarket on startup.
+    if getattr(_pmc, "live", False):
+        try:
+            open_pos = [m["position"] for m in load_all_markets()
+                        if m.get("position") and m["position"].get("status") == "open"]
+            report = _pmc.reconcile(open_pos)
+            if report.get("drift"):
+                print(f"  [RECONCILE] drift detected: {report['drift']}")
+            else:
+                print(f"  [RECONCILE] {report.get('checked', 0)} positions clean")
+        except Exception as e:
+            print(f"  [RECONCILE] error: {e}")
 
     last_full_scan = 0
 

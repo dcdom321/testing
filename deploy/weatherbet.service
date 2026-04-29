@@ -1,0 +1,32 @@
+[Unit]
+Description=Weatherbet Polymarket trading bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=weatherbet
+Group=weatherbet
+WorkingDirectory=/opt/weatherbet
+EnvironmentFile=-/opt/weatherbet/.env
+ExecStart=/opt/weatherbet/.venv/bin/python /opt/weatherbet/bot_v2.py run
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/weatherbet/data /opt/weatherbet/config.json
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+RestrictRealtime=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

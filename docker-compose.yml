@@ -1,0 +1,26 @@
+services:
+  weatherbet:
+    build: .
+    container_name: weatherbet
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./config.json:/app/config.json
+      - ./data:/app/data
+    command: ["python", "bot_v2.py", "run"]
+
+  # MCP server for Hermes Agent. Hermes typically spawns MCP servers itself
+  # over stdio, so this profile only runs when explicitly requested.
+  hermes-mcp:
+    build: .
+    container_name: weatherbet-mcp
+    profiles: ["mcp"]
+    env_file:
+      - .env
+    volumes:
+      - ./config.json:/app/config.json
+      - ./data:/app/data
+    stdin_open: true
+    tty: true
+    command: ["python", "hermes_mcp.py"]
