@@ -161,27 +161,37 @@ Verifies API creds derive cleanly and the bot can read your open orders. Does
 not place orders. Make sure USDC + CTF allowances are approved on Polygon for
 the Polymarket exchange contracts.
 
-## Hermes Agent (MCP)
+## Agent Integration (file-based)
 
-`hermes_mcp.py` is a Model Context Protocol server that exposes the bot's
-control surface to [Hermes Agent](https://hermes-agent.nousresearch.com/).
-Hermes can monitor history and adjust tuning parameters between runs.
+The bot is designed to be driven by an external AI agent that monitors earnings
+and tunes parameters. There is no proprietary protocol — the agent reads and
+writes plain JSON files in the working directory:
 
-Tools exposed:
-- Read-only: `get_status`, `get_positions`, `get_recent_trades`, `get_calibration`, `get_config`, `get_audit_log`
-- Tuning: `update_config(field, value, reason)` — only fields in `agent_config.editable_fields` (e.g. `min_ev`, `kelly_fraction`)
-- Operational: `pause`, `resume`, `set_kill_switch`, `reset_kill_switch`, `request_close_position`
+**Read** (state and history):
+- `data/state.json` — balance, peak, win/loss, total trades
+- `data/markets/*.json` — every position the bot has taken, with forecast
+  snapshots, market prices, entry/exit, PnL, and resolution outcome
+- `data/calibration.json` — learned forecast sigma per city/source
 
-Every mutation is appended to `data/agent_audit.log`. Risk caps and wallet
-config are deliberately not editable from MCP.
+**Write** (tuning):
+- `config.json` — edit any field listed in `agent_config.editable_fields`:
+  `min_ev`, `max_price`, `kelly_fraction`, `max_bet`, `min_volume`,
+  `max_slippage`, `min_hours`, `max_hours`. The bot re-reads these at the
+  start of each scan and monitor cycle, so changes take effect on the next
+  tick — no restart needed.
 
-Add this to your Hermes config (typically `~/.hermes/config.toml` or via
-`hermes mcp add`):
-```toml
-[mcp_servers.weatherbet]
-command = "/opt/weatherbet/.venv/bin/python"
-args    = ["/opt/weatherbet/hermes_mcp.py"]
-```
+**Operational flags** (drop these as files to halt new entries instantly):
+- `data/PAUSED` — pause new entries; existing positions stay managed
+- `data/KILL_SWITCH` — same effect, stronger signal
+
+**Locked at startup** (require a bot restart to change):
+- `risk.*` — hard caps; the bot will not let an agent raise them at runtime
+- `wallet.*` — credentials
+- `live_trading` — paper vs live
+
+Every detected change to a tuning field is appended to
+`data/config_changes.log` (JSON-lines), so you can audit what the agent did
+and when.
 
 ## Deployment (Ubuntu VPS)
 

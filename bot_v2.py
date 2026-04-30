@@ -61,6 +61,46 @@ STATE_FILE       = DATA_DIR / "state.json"
 MARKETS_DIR      = DATA_DIR / "markets"
 MARKETS_DIR.mkdir(exist_ok=True)
 CALIBRATION_FILE = DATA_DIR / "calibration.json"
+CONFIG_LOG       = DATA_DIR / "config_changes.log"
+
+# Fields the bot re-reads from config.json every cycle. An agent can edit
+# these in the file and the bot will pick them up on the next scan/monitor
+# tick. Risk caps, wallet, and live_trading are NOT in this list — they're
+# loaded once at startup and require a restart to change.
+TUNING_FIELDS = ["min_ev", "max_price", "kelly_fraction", "max_bet",
+                 "min_volume", "max_slippage", "min_hours", "max_hours"]
+_tuning_prev = None
+
+
+def _apply_tuning():
+    """Re-read tunable fields from config.json and update module globals.
+    Logs every change to data/config_changes.log so adjustments are auditable."""
+    global MIN_EV, MAX_PRICE, KELLY_FRACTION, MAX_BET, MIN_VOLUME
+    global MAX_SLIPPAGE, MIN_HOURS, MAX_HOURS, _tuning_prev
+    try:
+        with open("config.json", encoding="utf-8") as f:
+            cfg = json.load(f)
+    except Exception as e:
+        print(f"  [CONFIG] reload failed: {e}")
+        return
+    cur = {k: cfg.get(k) for k in TUNING_FIELDS}
+    if _tuning_prev is not None and cur != _tuning_prev:
+        changes = {k: {"old": _tuning_prev[k], "new": cur[k]}
+                   for k in cur if cur[k] != _tuning_prev[k]}
+        rec = {"ts": datetime.now(timezone.utc).isoformat(), "changes": changes}
+        with CONFIG_LOG.open("a") as f:
+            f.write(json.dumps(rec) + "\n")
+        print(f"  [CONFIG] {len(changes)} tuning change(s): "
+              + ", ".join(f"{k}: {v['old']}->{v['new']}" for k, v in changes.items()))
+    _tuning_prev = cur
+    MIN_EV         = float(cur["min_ev"])
+    MAX_PRICE      = float(cur["max_price"])
+    KELLY_FRACTION = float(cur["kelly_fraction"])
+    MAX_BET        = float(cur["max_bet"])
+    MIN_VOLUME     = int(cur["min_volume"])
+    MAX_SLIPPAGE   = float(cur["max_slippage"])
+    MIN_HOURS      = float(cur["min_hours"])
+    MAX_HOURS      = float(cur["max_hours"])
 
 LOCATIONS = {
     "nyc":          {"lat": 40.7772,  "lon":  -73.8726, "name": "New York City", "station": "KLGA", "unit": "F", "region": "us"},
@@ -489,6 +529,7 @@ def take_forecast_snapshot(city_slug, dates):
 def scan_and_update():
     """Main function of one cycle: updates forecasts, opens/closes positions."""
     global _cal
+    _apply_tuning()
     now      = datetime.now(timezone.utc)
     state    = load_state()
     balance  = state["balance"]
@@ -954,6 +995,7 @@ MONITOR_INTERVAL = 600  # monitor positions every 10 minutes
 
 def monitor_positions():
     """Quick stop check on open positions without full scan."""
+    _apply_tuning()
     markets  = load_all_markets()
     open_pos = [m for m in markets if m.get("position") and m["position"].get("status") == "open"]
     if not open_pos:
