@@ -1,3 +1,2 @@
 requests>=2.31.0
 py-clob-client>=0.21.0
-mcp>=1.2.0
