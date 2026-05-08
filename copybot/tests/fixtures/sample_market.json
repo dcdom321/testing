@@ -1,0 +1,11 @@
+{
+  "id": "12345",
+  "conditionId": "0xfeedbeef00000000000000000000000000000000000000000000000000000001",
+  "question": "Will the Mets win the World Series?",
+  "slug": "mets-ws-2026",
+  "bestBid": 0.41,
+  "bestAsk": 0.43,
+  "outcomePrices": "[\"0.41\",\"0.43\"]",
+  "liquidityNum": 12500.5,
+  "volumeNum": 250000.0
+}

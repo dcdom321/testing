@@ -1,0 +1,29 @@
+[
+  {
+    "proxyWallet": "0xabcdef0000000000000000000000000000000001",
+    "side": "BUY",
+    "asset": "12345678901234567890",
+    "conditionId": "0xfeedbeef00000000000000000000000000000000000000000000000000000001",
+    "size": 100.0,
+    "price": 0.42,
+    "timestamp": 1715000000,
+    "transactionHash": "0xaa11000000000000000000000000000000000000000000000000000000000001",
+    "title": "Will the Mets win the World Series?",
+    "slug": "mets-ws-2026",
+    "eventSlug": "world-series-2026",
+    "outcome": "Yes",
+    "outcomeIndex": 0
+  },
+  {
+    "proxyWallet": "0xabcdef0000000000000000000000000000000001",
+    "side": "SELL",
+    "asset": "98765432109876543210",
+    "conditionId": "0xfeedbeef00000000000000000000000000000000000000000000000000000002",
+    "size": 50.0,
+    "price": 0.78,
+    "timestamp": 1715000300,
+    "transactionHash": "0xaa11000000000000000000000000000000000000000000000000000000000002",
+    "outcome": "Yes",
+    "outcomeIndex": 0
+  }
+]
