@@ -1,0 +1,56 @@
+# Polymarket copy-trading bot config.
+# Secrets (private keys, webhook URLs) live in .env, NOT here.
+
+# Paper mode is the safe default. To trade real money, BOTH of these must be true:
+#   1. real_trading_enabled: true   (in this file)
+#   2. REAL_TRADING_ENABLED=true    (in your environment)
+# If either is missing, the bot stays in paper mode regardless.
+real_trading_enabled: false
+
+poll_interval_seconds: 30
+
+data_api_url:  "https://data-api.polymarket.com"
+gamma_api_url: "https://gamma-api.polymarket.com"
+
+db_path: "copybot/data/copybot.db"
+
+# Wallets to monitor. Either a list of strings or list of {wallet, label, copy_percent} dicts.
+# copy_percent here overrides risk.copy_trade_percent for that specific target.
+targets:
+  - wallet: "0x0000000000000000000000000000000000000000"
+    label:  "example-trader"
+    # copy_percent: 0.10
+
+risk:
+  copy_trade_percent:           0.05    # copy 5% of target's notional
+  max_trade_usdc:               10.0    # cap any single copied trade
+  max_daily_loss_usdc:          25.0    # halt new entries for the rest of UTC day
+  max_market_exposure_usdc:     50.0    # cap aggregate exposure per market
+  max_slippage_percent:         2.0     # |execution_price - mid| / mid * 100
+  max_price_move_after_target:  3.0     # |current_mid - target_price| / target_price * 100
+  min_market_liquidity_usdc:    1000.0  # skip thin markets
+  cap_oversize_trades:          true    # if false, skip oversize instead of capping
+  blacklist_condition_ids: []
+  whitelist_condition_ids: []           # empty list = no restriction
+  whitelist_categories: []              # e.g. ["Sports", "Politics"]
+  kill_switch_file: "copybot/data/KILL_SWITCH"
+  pause_file:       "copybot/data/PAUSED"
+
+# Real-trading wallet. Used only when real_trading_enabled=true AND REAL_TRADING_ENABLED=true.
+# Use the *_env keys to read from environment; never commit raw keys.
+wallet:
+  host:               "https://clob.polymarket.com"
+  chain_id:           137
+  signature_type:     2                          # 2 = Polymarket proxy wallet
+  private_key_env:    "POLYMARKET_PRIVATE_KEY"
+  funder_address_env: "POLYMARKET_FUNDER_ADDRESS"
+
+notifications:
+  discord_webhook_env: "DISCORD_WEBHOOK_URL"
+  telegram_token_env:  "TELEGRAM_BOT_TOKEN"
+  telegram_chat_env:   "TELEGRAM_CHAT_ID"
+  notify_on_copy:     true
+  notify_on_skip:     false   # noisy
+  notify_on_target:   true
+  notify_on_error:    true
+  notify_on_risk_hit: true

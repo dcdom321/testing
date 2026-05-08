@@ -3,6 +3,11 @@ data/
 simulation.json
 config.local.json
 
+# Copybot runtime
+copybot/data/*
+!copybot/data/.gitkeep
+copybot/config.yaml
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
